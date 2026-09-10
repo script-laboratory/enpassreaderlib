@@ -31,7 +31,7 @@ Import all parts from enpassreaderlib here
 .. _Google Python Style Guide:
    http://google.github.io/styleguide/pyguide.html
 """
-from enpassreaderlib.enpassreaderlib import EnpassDB
+from enpassreaderlib.enpassreaderlib import EnpassDB, Entry, EntryField
 from ._version import __version__
 
 __author__ = '''Costas Tyfoxylos <costas.tyf@gmail.com>'''

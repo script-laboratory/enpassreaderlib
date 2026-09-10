@@ -61,6 +61,7 @@ LOGGER.addHandler(logging.NullHandler())
 
 class EnpassDB:
     """Manages the database object exposing useful methods to interact with it."""
+    _field_types = ['password', 'totp', 'username', 'text']
 
     def __init__(self, database_path, password, keyfile=None, pbkdf2_rounds=320_000):
         self._database_path = database_path
@@ -73,19 +74,20 @@ class EnpassDB:
 
     @property
     def _retrieve_all_query(self):
-        field_types = ['password', 'totp']
+        fields = ', '.join([(f'if_{type_}.item_uuid as {type_}_uuid, '
+                             f'if_{type_}.type as {type_}_type, '
+                             f'if_{type_}.label as {type_}_label, '
+                             f'if_{type_}.value as {type_}_value, '
+                             f'if_{type_}.hash as {type_}_hash') for type_ in self._field_types])
         return ('SELECT '
                 'i.title, '
                 'i.uuid, '
                 'i.key, '
-                'if_password.value as password_value, '
-                'if_password.hash as password_value_hash, '
-                'if_totp.value as totp_value, '
-                'if_totp.hash as totp_value_hash '
+                f'{fields} '
                 'FROM item i ' + ''.join([(f'LEFT JOIN '
-                                           f'(SELECT item_uuid, type, value, hash '
+                                           f'(SELECT item_uuid, type, label, value, hash '
                                            f'FROM itemfield WHERE type = "{type_}") if_{type_} '
-                                           f'ON i.uuid = if_{type_}.item_uuid ') for type_ in field_types]))
+                                           f'ON i.uuid = if_{type_}.item_uuid ') for type_ in self._field_types]))
 
     @property
     def master_password(self):
@@ -142,10 +144,39 @@ class EnpassDB:
         self._cursor.execute(query)
         # If you deleted an item from Enpass, it stays in the database, but the
         # entries are cleared so only entries with nonce are valid entries
-        return [row for row in self._cursor if row["key"][32:]]
+        results = {}
+        for row in self._cursor:
+            row_dict = {key: row[idx] for idx, key in enumerate(row.keys())}
+            if row_dict["key"][32:]:
+                title = hashlib.sha256(row_dict['title'].encode('utf-8')).hexdigest()
+                if title not in results:
+                    results[title] = {
+                        "title": row_dict['title'],
+                        "uuid": row_dict['uuid'],
+                        "key": row_dict['key'],
+                    }
+                #for k in row_dict:
+                #    results[title][k] = row_dict[k]
+                for type_ in self._field_types:
+                    t_label = row_dict.get(f'{type_}_label')
+                    t_uuid = row_dict.get(f'{type_}_uuid')
+                    t_type = row_dict.get(f'{type_}_type')
+                    t_value = row_dict.get(f'{type_}_value')
+                    t_hash = row_dict.get(f'{type_}_hash')
+                    if t_label is not None and t_label:
+                        t_label_encoded = t_label.lower().encode('utf-8')
+                        results[title][t_label_encoded] = {
+                            "label": t_label,
+                            "uuid": t_uuid,
+                            "type": t_type,
+                            "value": t_value,
+                            "hash": t_hash,
+                        }
+        return [results[k] for k in results]
+        #return [row for row in self._cursor if row["key"][32:]]
 
     @property
-    def entries(self):
+    def entries(self) -> list[Entry]:
         """All the entries in the database.
 
         Returns:
@@ -154,7 +185,7 @@ class EnpassDB:
         """
         return [Entry(row) for row in self._query(f'{self._retrieve_all_query};')]
 
-    def get_entry(self, name):
+    def get_entry(self, name) -> Entry:
         """Retrieves a single entry matching the name.
 
         Args:
@@ -165,13 +196,12 @@ class EnpassDB:
 
         """
         query = f'{self._retrieve_all_query} WHERE lower(i.title) = \"{name.lower()}\";'
-        row = next((row for row in self._query(query)),
-                   None)
+        row = next((row for row in self._query(query)), None)
         if row is None:
             return row
         return Entry(row)
 
-    def search_entries(self, name):
+    def search_entries(self, name) -> list[Entry]:
         """Retrieves any entry that matches the name provided (fuzzy matching).
 
         Args:
@@ -184,6 +214,28 @@ class EnpassDB:
         query = f'{self._retrieve_all_query} WHERE lower(i.title) LIKE \"%{name.lower()}%\";'
         return [Entry(row) for row in self._query(query)]
 
+class EntryField:
+    """Field model in Entry
+    """
+    def __init__(
+        self,
+        label: str | None = None,
+        uuid: str | None = None,
+        type: str | None = None,
+        value: str | None = None,
+        hash: str | None = None
+    ):
+        self.label = label
+        self.uuid = uuid
+        self.type = type
+        self.value = value
+        self.hash = hash
+
+    def __str__(self):
+        return f'label: "{self.label}", type: "{self.type}", value: "{self.value}"' if self.type != "password" else f'label: "{self.label}", type: "{self.type}", hash: "{self.hash}"'
+
+    def __repr__(self):
+        return f'EntryField(label: "{self.label}", uuid: "{self.uuid}", type: "{self.type}", value: "{self.value}", hash: "{self.hash}")' if self.type != 'password' else f'EntryField(label: "{self.label}", uuid: "{self.uuid}", type: "{self.type}", hash: "{self.hash}")'
 
 class Entry:
     """Models a password entry and exposes some useful attributes about it."""
@@ -194,13 +246,32 @@ class Entry:
         self.key = database_row["key"][:32]
         self.nonce = database_row["key"][32:]
         self.title = database_row["title"]
-        self._password_value = database_row["password_value"]
-        self._password_hash = database_row["password_value_hash"]
+        self.login = database_row.get("username".encode('utf-8')).get("value") if database_row.get("username".encode('utf-8')) else None
+        self._password_value = database_row.get("password".encode('utf-8')).get("value") if database_row.get("password".encode('utf-8')) else None
+        self._password_hash = database_row.get("password".encode('utf-8')).get("hash") if database_row.get("password".encode('utf-8')) else None
         self.uuid = database_row["uuid"]
-        self._totp_hash = database_row["totp_value_hash"]
-        self._totp = database_row["totp_value"]
+        self._totp_hash = database_row.get("totp".encode('utf-8')).get("hash") if database_row.get("totp".encode('utf-8')) else None
+        self._totp = database_row.get("totp".encode('utf-8')).get("value") if database_row.get("totp".encode('utf-8')) else None
         self.header = self.uuid.replace("-", "")
         self._password = None
+        self._custom_fields = {}
+        exclude_keys = [
+            "key", "title", "uuid",
+            "username".encode('utf-8'),
+            "password".encode('utf-8'),
+            "totp".encode('utf-8')
+        ]
+        for k in database_row:
+           if k not in exclude_keys:
+               label = database_row[k]['label']
+               self._custom_fields[k] = EntryField(
+                   label=database_row[k].get('label'),
+                   uuid=database_row[k].get('uuid'),
+                   type=database_row[k].get('type'),
+                   value=database_row[k].get('value'),
+                   hash=database_row[k].get('hash'),
+               )
+        self._raw_data = database_row
 
     @property
     def password(self):
@@ -229,3 +300,51 @@ class Entry:
     @property
     def totp_seed(self):
         return self._totp
+
+    def get(self, key) -> EntryField:
+        k_encoded = key.encode('utf-8')
+        return self._custom_fields[k_encoded] if k_encoded in self._custom_fields else None 
+
+    def get_value(self, key):
+        k_encoded = key.encode('utf-8')
+        return self._custom_fields[k_encoded].value if k_encoded in self._custom_fields else None 
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        yield "key", self.key
+        yield "nonce", self.nonce
+        yield "title", self.title
+        yield "login", self.login
+        yield "uuid", self.uuid
+        yield "header", self.header
+        yield "row", self._row
+
+    def __str__(self):
+        return f"title: {self.title}, login: {self.login}"
+
+    def to_dict(self):
+        results = {
+            "key": self.key,
+            "nonce": self.nonce,
+            "title": self.title,
+            "login": self.login,
+            "uuid": self.uuid,
+            "header": self.header,
+        }
+        for k in self._custom_fields:
+            results[k] = self._custom_fields[k]
+        return results
+
+    def __repr__(self):
+        fields_list = []
+        for k in self._custom_fields:
+            fields_list.append(f', {self._custom_fields[k]}')
+        custom_fields = ''.join(fields_list) if fields_list else ""
+        return ('Entry('
+            f'title="{self.title}", '
+            f'login="{self.login}"'
+            f'{custom_fields}'
+            ')'
+        )

@@ -7,6 +7,13 @@ A library implementing the decrypting and retrieving secrets from an enpass 6 da
 
 * Documentation: https://enpassreaderlib.readthedocs.org/en/latest
 
+### Note for Documentation.
+
+pysqlcipher3 needs to compile on your workstation and may fail with python 3.12 or later.
+Apply
+   [PR-38](https://github.com/rigglemania/pysqlcipher3/pull/38)
+in https://github.com/rigglemania/pysqlcipher3, or use forked repository in
+ [our repositories](https://github.com/script-laboratory/pysqlcipher3)
 
 Development Workflow
 ====================
@@ -71,3 +78,11 @@ See USAGE.rst.
 * Can iterate over all entries
 * Can do fuzzy matching of entries while searching
 
+What Changed from Original
+==========================
+
+* Moved array of field types to get from local variable to member variable of class.
+* Changed logic to create fields of itemfield in sql.
+* Changed logic when storing results from pysqlcipher3 dbapi2 due to changed format.
+* Changed logic storing results to dictionary because pysqlcipher3 return values as array.
+* Store all fields in entry stores in _row variable so that we can use fields other than login and password.
