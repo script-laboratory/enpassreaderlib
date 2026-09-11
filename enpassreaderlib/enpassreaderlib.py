@@ -237,6 +237,18 @@ class EntryField:
     def __repr__(self):
         return f'EntryField(label: "{self.label}", uuid: "{self.uuid}", type: "{self.type}", value: "{self.value}", hash: "{self.hash}")' if self.type != 'password' else f'EntryField(label: "{self.label}", uuid: "{self.uuid}", type: "{self.type}", hash: "{self.hash}")'
 
+    def to_dict(self):
+        exclude_types = ['password', 'totp']
+        result = {
+            "label": self.label,
+            "type": self.type,
+            "value": self.value,
+        } if self.type not in exclude_types else {
+            "label": self.label,
+            "type": self.type,
+            "hash": self.hash,
+        }
+
 class Entry:
     """Models a password entry and exposes some useful attributes about it."""
 
