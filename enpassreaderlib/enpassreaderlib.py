@@ -248,6 +248,7 @@ class EntryField:
             "type": self.type,
             "hash": self.hash,
         }
+        return result
 
 class Entry:
     """Models a password entry and exposes some useful attributes about it."""
@@ -346,7 +347,7 @@ class Entry:
             "header": self.header,
         }
         for k in self._custom_fields:
-            results[k] = self._custom_fields[k]
+            results[k] = self._custom_fields[k].to_dict()
         return results
 
     def __repr__(self):
