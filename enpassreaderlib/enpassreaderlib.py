@@ -65,7 +65,7 @@ class EnpassDB:
 
     def __init__(self, database_path, password, keyfile=None, pbkdf2_rounds=320_000):
         self._database_path = database_path
-        self._password = password.encode('utf-8')
+        self._password = password.encode('utf-8') if password else None
         self._keyfile = keyfile
         self.pbkdf2_rounds = pbkdf2_rounds
         self._master_password = None
@@ -101,7 +101,7 @@ class EnpassDB:
             if self._keyfile:
                 key_hex_xml = Path(self._keyfile).read_bytes()
                 key_bytes = binascii.unhexlify(key_hex_xml[slice(5, -6)])  # noqa
-                self._password = self._password + key_bytes
+                self._password = (self._password + key_bytes) if self._password else key_bytes
             self._master_password = self._password
         return self._master_password
 
@@ -316,11 +316,11 @@ class Entry:
 
     def get(self, key) -> EntryField:
         k_encoded = key.encode('utf-8')
-        return self._custom_fields[k_encoded] if k_encoded in self._custom_fields else None 
+        return self._custom_fields[k_encoded] if k_encoded in self._custom_fields else None
 
     def get_value(self, key):
         k_encoded = key.encode('utf-8')
-        return self._custom_fields[k_encoded].value if k_encoded in self._custom_fields else None 
+        return self._custom_fields[k_encoded].value if k_encoded in self._custom_fields else None
 
     def __iter__(self):
         return self
